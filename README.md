@@ -1,7 +1,12 @@
 # ShotKeys
 
-A macOS menu bar app that plays a shotgun sound on every key press. Letters fire a short blast,
-Space racks the pump, Enter reloads the gun, and Backspace ejects a shell.
+A macOS menu bar app that plays a sound on every key press, with two sound packs you switch
+between in the menu:
+
+- **Shotgun:** letters fire a short blast, Space racks the pump, Enter reloads the gun and
+  Backspace ejects a shell.
+- **Piano:** every letter A–Z is a piano key, laid out by keyboard row, so you can play tunes
+  while you type.
 
 **Just want to use it?** Download `ShotKeys.zip` from the
 [latest release](https://github.com/milanrayat/ShotKeys/releases/latest) and follow
@@ -89,11 +94,12 @@ tccutil reset ListenEvent com.milanrayat.ShotKeys
 | Control | What it does |
 |---|---|
 | Enabled switch | Mutes or unmutes instantly. Off also stops the audio engine. |
+| Shotgun / Piano | Switches the sound pack instantly. Remembered across relaunches. |
 | Volume | 0–100%, applied live |
-| Pitch variation | 0 to ±12% random playback rate per shot (default ±6%) |
+| Pitch variation | 0 to ±12% random playback rate per shot (default ±6%). Disabled in Piano mode so notes stay in tune. |
 | Play on key repeat | Off by default: holding a key fires once. On: holding a key keeps firing. |
-| Test buttons | Fire each sound group without typing |
-| Diagnostics | Permission state, key-press counter, shots played, measured latency, engine state, Secure Input warning |
+| Test buttons | Play the current pack's sounds without typing |
+| Diagnostics | Permission state, key-press counter, sounds played, keys muted by reload, measured latency, engine state, Secure Input warning |
 | Quit | ⌘Q while the menu is open |
 
 Settings are stored in UserDefaults (`com.milanrayat.ShotKeys`) and survive relaunches.
@@ -108,8 +114,20 @@ Settings are stored in UserDefaults (`com.milanrayat.ShotKeys`) and survive rela
   (including Enter again) stays silent until the reload finishes, so you only hear the reload.
   The menu's Diagnostics counts how many keys were muted this way. Change which groups are
   exclusive with `isExclusive` in `KeyMap.swift`.
-- **Key groups** are defined in [`Sources/ShotKeys/KeyMap.swift`](Sources/ShotKeys/KeyMap.swift):
-  one small table, plus per-group gain.
+- **Piano layout:** the 26 letters are the white keys of C major (C3–G6), lowest on the bottom
+  row and highest on the top row, so sweeping along a row plays a scale:
+
+  | Row | Keys | Notes |
+  |---|---|---|
+  | Bottom | Z X C V B N M | C3 D3 E3 F3 G3 A3 B3 |
+  | Home | A S D F G H J K L | C4 D4 E4 F4 G4 A4 B4 C5 D5 |
+  | Top | Q W E R T Y U I O P | E5 F5 G5 A5 B5 C6 D6 E6 F6 G6 |
+
+  Space plays a soft low C (C2) and Enter a C-major chord. Numbers, punctuation and Backspace
+  are silent in Piano mode. The layout follows physical key positions, so it works the same on
+  AZERTY and other layouts.
+- **Key maps** for both packs are in [`Sources/ShotKeys/KeyMap.swift`](Sources/ShotKeys/KeyMap.swift),
+  along with each sound's gain and whether it is exclusive or varies in pitch.
 - **Password fields:** while macOS Secure Input is active (password fields, some terminals with
   "Secure Keyboard Entry"), macOS hides keystrokes from all event taps, so ShotKeys is silent.
   This is intended and is not worked around. The menu tells you when Secure Input is on.
@@ -117,21 +135,26 @@ Settings are stored in UserDefaults (`com.milanrayat.ShotKeys`) and survive rela
 
 ## Sounds
 
-Files live in `Resources/Sounds/` and are named `<group>_<n>.<ext>`:
+Files live in `Resources/Sounds/`. A trailing `_<number>` marks a variant of the same sound
+(`shot_1.wav` … `shot_5.wav` are all "shot", and one is picked at random); other names are one sound each.
 
-| Group | Files | Placeholder sound |
+| Sound | Files | Placeholder sound |
 |---|---|---|
 | `shot` | `shot_1.wav` … `shot_5.wav` | short blast |
 | `space` | `space_1.wav`, `space_2.wav` | pump rack "chk-chk" |
 | `reload` (Enter) | `reload_1.wav`, `reload_2.wav` | 3 or 2 shells clicked into the tube, then a pump rack (~0.8–1 s) |
 | `backspace` | `backspace_1.wav`, `backspace_2.wav` | dry click + shell tink |
+| Piano notes | `piano_C3.wav` … `piano_G6.wav` (26 files) | additive piano tone with string beating and a hammer thump |
+| `piano_bass` (Space) | `piano_bass.wav` | soft low C2 |
+| `piano_chord` (Enter) | `piano_chord.wav` | C major chord (C3 G3 C4 E4) |
 
 The bundled files are synthesized placeholders from `scripts/generate_sounds.py` (CC0). To use
 real recordings, drop royalty-free or CC0 files into the folder using the same names (add
 `shot_6.wav` etc. for more variants), record each source in
 [`Resources/Sounds/LICENSES.md`](Resources/Sounds/LICENSES.md), then rebuild. WAV, AIFF, CAF, MP3
 and M4A all work. Files are converted to 48 kHz mono and leading silence is trimmed at launch.
-For best results use 150–600 ms clips with a quick fade-out, normalized to similar loudness.
+For best results use 150–600 ms clips with a quick fade-out, normalized to similar loudness
+(piano notes can ring longer, about 1–1.5 s).
 
 Regenerate the placeholders with `python3 scripts/generate_sounds.py`.
 
@@ -185,7 +208,7 @@ Sources/ShotKeys/
   ShotKeysApp.swift              @main, MenuBarExtra, app delegate
   AppState.swift                 settings, permission flow, wiring
   KeyTap.swift                   listen-only CGEventTap
-  KeyMap.swift                   key code → sound group table
+  KeyMap.swift                   sound packs, sounds, key code → sound tables
   ShotEngine.swift               AVAudioEngine voice pool, limiter, latency stats
   MenuView.swift                 menu bar panel UI
   SelfTest.swift                 --selftest audio check
@@ -201,6 +224,8 @@ scripts/generate_sounds.py       placeholder sound synthesizer
 - [ ] Shift/Cmd/Ctrl/Option/Fn alone are silent; holding a letter fires once
 - [ ] Space, Enter, Backspace each sound distinct
 - [ ] Enter plays the reload; shots typed during it are silent
+- [ ] Piano mode: each letter plays its note (bottom row low, top row high); Space = bass, Enter = chord
+- [ ] Switching Shotgun ↔ Piano takes effect instantly and survives relaunch
 - [ ] Enabled switch silences instantly and re-enables without a restart
 - [ ] Volume changes live and survives relaunch
 - [ ] Without permission the menu warns and the button opens the right pane; granting starts sound without a restart
@@ -210,5 +235,5 @@ scripts/generate_sounds.py       placeholder sound synthesizer
 
 ## Future ideas
 
-Launch at login (SMAppService), a global mute hotkey, switchable sound packs, auto-mute while the
-mic is in use, per-app rules, and a key-release sound.
+Launch at login (SMAppService), a global mute hotkey, more sound packs (typewriter, thock, laser),
+auto-mute while the mic is in use, per-app rules, and a key-release sound.

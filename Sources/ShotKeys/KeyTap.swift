@@ -4,11 +4,14 @@ import Foundation
 /// Listen-only, system-wide key-down tap. It reads only the key code, the modifier flags and the
 /// auto-repeat flag; it never reads the typed character and never stores anything.
 final class KeyTap {
-    typealias Handler = (_ group: SoundGroup, _ isRepeat: Bool, _ timestamp: CGEventTimestamp) -> Void
+    typealias Handler = (_ sound: Sound, _ isRepeat: Bool, _ timestamp: CGEventTimestamp) -> Void
 
     private let handler: Handler
     private var port: CFMachPort?
     private var source: CFRunLoopSource?
+
+    /// The active sound pack. Main thread only (the tap callback runs on the main run loop).
+    var pack: SoundPack = .shotgun
 
     /// Number of key-down events seen this session (debug counter). Main thread only.
     private(set) var keyDownCount = 0
@@ -64,10 +67,10 @@ final class KeyTap {
         case .keyDown:
             keyDownCount += 1
             guard !KeyMap.isShortcut(event.flags) else { return }
-            let group = KeyMap.group(for: event.getIntegerValueField(.keyboardEventKeycode))
-            guard group != .silent else { return }
+            guard let sound = KeyMap.sound(for: event.getIntegerValueField(.keyboardEventKeycode), pack: pack)
+            else { return }
             let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
-            handler(group, isRepeat, event.timestamp)
+            handler(sound, isRepeat, event.timestamp)
         default:
             break
         }

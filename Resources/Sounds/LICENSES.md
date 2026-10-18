@@ -7,6 +7,8 @@ Every audio file in this folder must be royalty-free or CC0. Record each one her
 | shot_1.wav … shot_5.wav | Synthesized by `scripts/generate_sounds.py` (noise crack + filtered body + low thump) | ShotKeys project | CC0 1.0 (public domain) |
 | space_1.wav, space_2.wav | Synthesized by `scripts/generate_sounds.py` (two resonant metallic clicks, pump rack) | ShotKeys project | CC0 1.0 (public domain) |
 | reload_1.wav, reload_2.wav | Synthesized by `scripts/generate_sounds.py` (shell inserts + pump rack) | ShotKeys project | CC0 1.0 (public domain) |
+| piano_C3.wav … piano_G6.wav (26 files) | Synthesized by `scripts/generate_sounds.py` (additive piano tone + hammer noise) | ShotKeys project | CC0 1.0 (public domain) |
+| piano_bass.wav, piano_chord.wav | Synthesized by `scripts/generate_sounds.py` (C2 tone; C3 G3 C4 E4 chord) | ShotKeys project | CC0 1.0 (public domain) |
 | backspace_1.wav, backspace_2.wav | Synthesized by `scripts/generate_sounds.py` (dry click + shell tink) | ShotKeys project | CC0 1.0 (public domain) |
 
 These are placeholders. To use real recordings, replace the files (or add more variants, e.g.

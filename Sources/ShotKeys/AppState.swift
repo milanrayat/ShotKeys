@@ -11,6 +11,7 @@ final class AppState: ObservableObject {
         static let volume = "volume"
         static let pitchVariation = "pitchVariation"
         static let playOnRepeat = "playOnRepeat"
+        static let soundPack = "soundPack"
     }
 
     static let maxPitchVariation = 0.12
@@ -27,12 +28,19 @@ final class AppState: ObservableObject {
     @Published var playOnRepeat: Bool {
         didSet { defaults.set(playOnRepeat, forKey: Key.playOnRepeat); engine.setPlayOnRepeat(playOnRepeat) }
     }
+    @Published var soundPack: SoundPack {
+        didSet { defaults.set(soundPack.rawValue, forKey: Key.soundPack); tap.pack = soundPack }
+    }
     @Published private(set) var hasPermission = false
 
     let engine = ShotEngine()
-    private(set) lazy var tap = KeyTap { [engine] group, isRepeat, timestamp in
-        engine.trigger(group, isRepeat: isRepeat, eventTimestamp: timestamp)
-    }
+    private(set) lazy var tap: KeyTap = {
+        let tap = KeyTap { [engine] sound, isRepeat, timestamp in
+            engine.trigger(sound, isRepeat: isRepeat, eventTimestamp: timestamp)
+        }
+        tap.pack = soundPack
+        return tap
+    }()
 
     private let defaults = UserDefaults.standard
     private var watchdog: Timer?
@@ -43,16 +51,18 @@ final class AppState: ObservableObject {
             Key.volume: 0.7,
             Key.pitchVariation: 0.06,
             Key.playOnRepeat: false,
+            Key.soundPack: SoundPack.shotgun.rawValue,
         ])
         enabled = defaults.bool(forKey: Key.enabled)
         volume = defaults.double(forKey: Key.volume)
         pitchVariation = min(max(defaults.double(forKey: Key.pitchVariation), 0), Self.maxPitchVariation)
         playOnRepeat = defaults.bool(forKey: Key.playOnRepeat)
+        soundPack = SoundPack(rawValue: defaults.string(forKey: Key.soundPack) ?? "") ?? .shotgun
     }
 
     var menuBarSymbol: String {
         if !hasPermission { return "exclamationmark.triangle" }
-        return enabled ? "burst.fill" : "speaker.slash"
+        return enabled ? soundPack.symbol : "speaker.slash"
     }
 
     func start() {

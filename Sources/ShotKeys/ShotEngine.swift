@@ -41,8 +41,9 @@ final class ShotEngine {
         return buffer
     }()
     private var nextVoice = 0
-    private var banks: [SoundGroup: [AVAudioPCMBuffer]] = [:]
-    private var lastVariant: [SoundGroup: Int] = [:]
+    /// Samples by bank name (file stem without the variant number), e.g. "shot" or "piano_C4".
+    private var banks: [String: [AVAudioPCMBuffer]] = [:]
+    private var lastVariant: [String: Int] = [:]
     private var configObserver: NSObjectProtocol?
 
     /// Pause the engine after this long without a shot, so idle CPU is zero. The next key press resumes it.
@@ -79,7 +80,7 @@ final class ShotEngine {
         }
     }
 
-    var loadedSampleCounts: [SoundGroup: Int] {
+    var loadedSampleCounts: [String: Int] {
         queue.sync { banks.mapValues(\.count) }
     }
 
@@ -94,10 +95,9 @@ final class ShotEngine {
         let sorted = files
             .filter { audioExtensions.contains($0.pathExtension.lowercased()) }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        for group in SoundGroup.allCases where group != .silent {
-            banks[group] = sorted
-                .filter { $0.lastPathComponent.hasPrefix(group.filePrefix + "_") }
-                .compactMap { Self.loadBuffer(url: $0, format: format) }
+        for url in sorted {
+            guard let buffer = Self.loadBuffer(url: url, format: format) else { continue }
+            banks[Self.bankName(for: url), default: []].append(buffer)
         }
     }
 
@@ -239,18 +239,18 @@ final class ShotEngine {
     // MARK: Playback
 
     /// Called from the key tap callback. Returns immediately; all work happens on `queue`.
-    func trigger(_ group: SoundGroup, isRepeat: Bool, eventTimestamp: CGEventTimestamp) {
-        queue.async { self.play(group, isRepeat: isRepeat, eventTimestamp: eventTimestamp) }
+    func trigger(_ sound: Sound, isRepeat: Bool, eventTimestamp: CGEventTimestamp) {
+        queue.async { self.play(sound, isRepeat: isRepeat, eventTimestamp: eventTimestamp) }
     }
 
-    private func play(_ group: SoundGroup, isRepeat: Bool, eventTimestamp: CGEventTimestamp) {
+    private func play(_ sound: Sound, isRepeat: Bool, eventTimestamp: CGEventTimestamp) {
         guard enabled else { return }
         if isRepeat && !playOnRepeat { return }
         if DispatchTime.now().uptimeNanoseconds < exclusiveUntil {
             stats.recordSuppressed()
             return
         }
-        guard let bank = banks[group], !bank.isEmpty else { return }
+        guard let bank = banks[sound.bank], !bank.isEmpty else { return }
         if !engine.isRunning {
             // Woke from idle pause (or a device change left it stopped).
             let start = DispatchTime.now().uptimeNanoseconds
@@ -259,14 +259,14 @@ final class ShotEngine {
             stats.recordResume(ms: Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6)
         }
 
-        let buffer = bank[pickVariant(group, count: bank.count)]
-        let rate = pitchVariation > 0 ? 1 + Float.random(in: -pitchVariation...pitchVariation) : 1
+        let buffer = bank[pickVariant(sound.bank, count: bank.count)]
+        let rate = sound.variesPitch && pitchVariation > 0 ? 1 + Float.random(in: -pitchVariation...pitchVariation) : 1
 
         // Round-robin: the next voice is always the oldest, so if it is still busy we steal it.
         let index = nextVoice
         nextVoice = (nextVoice + 1) % voices.count
         let now = DispatchTime.now().uptimeNanoseconds
-        if group.isExclusive {
+        if sound.isExclusive {
             // Only the reload should be heard: cut off every shot still ringing.
             for i in voices.indices where voices[i].busyUntil > now {
                 voices[i].player.scheduleBuffer(silence, at: nil, options: [.interrupts], completionHandler: nil)
@@ -277,30 +277,40 @@ final class ShotEngine {
         let stealing = voice.busyUntil > now
 
         voice.varispeed.rate = rate
-        voice.player.volume = group.gain
+        voice.player.volume = sound.gain
         voice.player.scheduleBuffer(buffer, at: nil, options: stealing ? [.interrupts] : [], completionHandler: nil)
         if !voice.player.isPlaying { voice.player.play() }
 
         let seconds = Double(buffer.frameLength) / format.sampleRate / Double(rate)
         voices[index].busyUntil = now + UInt64(seconds * 1_000_000_000)
-        if group.isExclusive { exclusiveUntil = voices[index].busyUntil }
+        if sound.isExclusive { exclusiveUntil = voices[index].busyUntil }
         lastSoundEndsAt = max(lastSoundEndsAt, voices[index].busyUntil)
 
         stats.recordShot(eventTimestamp: eventTimestamp, scheduledAt: DispatchTime.now().uptimeNanoseconds, stolen: stealing)
     }
 
     /// Random variant, never the same one twice in a row.
-    private func pickVariant(_ group: SoundGroup, count: Int) -> Int {
+    private func pickVariant(_ bank: String, count: Int) -> Int {
         guard count > 1 else { return 0 }
         var pick = Int.random(in: 0..<count)
-        if pick == lastVariant[group] {
+        if pick == lastVariant[bank] {
             pick = (pick + Int.random(in: 1..<count)) % count
         }
-        lastVariant[group] = pick
+        lastVariant[bank] = pick
         return pick
     }
 
     // MARK: Loading
+
+    /// "shot_3.wav" → "shot", "piano_C4.wav" → "piano_C4": a trailing "_<number>" marks a variant.
+    private static func bankName(for url: URL) -> String {
+        let stem = url.deletingPathExtension().lastPathComponent
+        if let underscore = stem.lastIndex(of: "_") {
+            let suffix = stem[stem.index(after: underscore)...]
+            if !suffix.isEmpty && suffix.allSatisfy(\.isNumber) { return String(stem[..<underscore]) }
+        }
+        return stem
+    }
 
     private static func loadBuffer(url: URL, format: AVAudioFormat) -> AVAudioPCMBuffer? {
         do {

@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Generate placeholder shotgun sounds for ShotKeys (pure Python, no dependencies).
+"""Generate placeholder sounds for ShotKeys (pure Python, no dependencies).
 
 Writes 48 kHz / 16-bit mono WAVs into Resources/Sounds:
   shot_1..5.wav       short blast (noise crack + filtered body + low thump)
   space_1..2.wav      pump-action rack ("chk-chk")
   reload_1..2.wav     reload: shells clicked into the tube, then a pump rack (Enter)
   backspace_1..2.wav  dry click + shell eject
+  piano_C3..G6.wav    Piano pack: 26 white-key notes (one per letter)
+  piano_bass.wav      Piano pack: soft low C2 (Space)
+  piano_chord.wav     Piano pack: C major chord (Enter)
 
 Every file starts its transient at sample 0, is peak-normalised to -1 dBFS and ends in a fade.
 Drop real samples into the same folder with the same naming pattern to replace them.
@@ -165,6 +168,57 @@ def shell_eject(rng, click_freq, tink_freqs, tink_delay):
     return finish(mix((click, 1.0), (offset(tink, tink_delay, n), 0.6)), fade_ms=25)
 
 
+# --- Piano ------------------------------------------------------------------
+
+NOTE_OFFSETS = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+PIANO_NOTES = ["C3", "D3", "E3", "F3", "G3", "A3", "B3",
+               "C4", "D4", "E4", "F4", "G4", "A4", "B4",
+               "C5", "D5", "E5", "F5", "G5", "A5", "B5",
+               "C6", "D6", "E6", "F6", "G6"]
+
+
+def note_freq(name):
+    midi = 12 * (int(name[1:]) + 1) + NOTE_OFFSETS[name[0]]
+    return 440.0 * 2 ** ((midi - 69) / 12)
+
+
+def piano_tone(rng, freq, dur, max_partials=10, brightness=1.0):
+    """Additive piano-like tone: slightly inharmonic partials, two detuned strings per partial
+    (gives the gentle beating), a fast-then-slow decay, and a short felt-hammer thump."""
+    n = n_samples(dur)
+    octave = math.log2(freq / 130.81)          # 0 at C3, ~3.6 at G6
+    slow_tau = max(0.35, 1.2 - 0.22 * octave)  # high notes die away faster
+    inharmonicity = 0.00015 * (1 + octave)
+    out = [0.0] * n
+    for k in range(1, max_partials + 1):
+        fk = k * freq * math.sqrt(1 + inharmonicity * k * k)
+        if fk > 12_000:
+            break
+        amp = brightness ** (k - 1) / k ** 1.25
+        fast = math.exp(-1.0 / (0.09 / k ** 0.3 * SR))
+        slow = math.exp(-1.0 / (slow_tau / (1 + 0.45 * (k - 1)) * SR))
+        detune = 0.0007 if k < 4 else 0.0003
+        w1 = 2 * math.pi * fk * (1 - detune) / SR
+        w2 = 2 * math.pi * fk * (1 + detune) / SR
+        out = [o + amp * (0.55 * fast ** i + 0.45 * slow ** i) * (math.sin(w1 * i) + math.sin(w2 * i))
+               for i, o in enumerate(out)]
+    hammer = mul(lowpass(noise(n, rng), min(3000, freq * 6)), decay(n, 0.004))
+    peak = max(abs(v) for v in out) or 1.0
+    return mix((out, 1.0 / peak), (hammer, 0.08))
+
+
+def piano_note(rng, name):
+    freq = note_freq(name)
+    dur = max(0.9, 1.5 - 0.17 * math.log2(freq / 130.81))
+    return finish(piano_tone(rng, freq, dur), fade_ms=150)
+
+
+def piano_chord(rng, names, dur=1.6):
+    n = n_samples(dur)
+    tones = [piano_tone(rng, note_freq(name), dur) for name in names]
+    return finish(mix(*[(t[:n], 1.0) for t in tones]), fade_ms=200)
+
+
 def write_wav(path, samples):
     with wave.open(path, "wb") as f:
         f.setnchannels(1)
@@ -194,6 +248,11 @@ def main():
         "backspace_1": shell_eject(rng, 3800, [6400, 9100], 0.045),
         "backspace_2": shell_eject(rng, 3300, [5900, 8300], 0.055),
     }
+    for note in PIANO_NOTES:
+        sounds["piano_" + note] = piano_note(rng, note)
+    sounds["piano_bass"] = finish(piano_tone(rng, note_freq("C2"), 1.6, max_partials=6, brightness=0.7), fade_ms=200)
+    sounds["piano_chord"] = piano_chord(rng, ["C3", "G3", "C4", "E4"])
+
     for name, samples in sounds.items():
         path = os.path.join(out_dir, name + ".wav")
         write_wav(path, samples)

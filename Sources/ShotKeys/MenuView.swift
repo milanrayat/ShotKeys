@@ -14,6 +14,14 @@ struct MenuView: View {
                     .labelsHidden()
             }
 
+            Picker("Sound", selection: $state.soundPack) {
+                ForEach(SoundPack.allCases) { pack in
+                    Label(pack.displayName, systemImage: pack.symbol).tag(pack)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
             if !state.hasPermission {
                 permissionWarning
             }
@@ -36,7 +44,13 @@ struct MenuView: View {
                     Text("±\(Int((state.pitchVariation * 100).rounded()))%").monospacedDigit().foregroundStyle(.secondary)
                 }
                 Slider(value: $state.pitchVariation, in: 0...AppState.maxPitchVariation)
+                if state.soundPack == .piano {
+                    Text("Off in Piano mode so notes stay in tune.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
+            .disabled(state.soundPack == .piano)
 
             Toggle("Play on key repeat", isOn: $state.playOnRepeat)
 
@@ -45,9 +59,9 @@ struct MenuView: View {
             HStack(spacing: 6) {
                 Text("Test").font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                ForEach([SoundGroup.shot, .space, .reload, .backspace], id: \.self) { group in
-                    Button(group.rawValue.capitalized) {
-                        state.engine.trigger(group, isRepeat: false, eventTimestamp: 0)
+                ForEach(state.soundPack.testSounds, id: \.label) { test in
+                    Button(test.label) {
+                        state.engine.trigger(test.sound, isRepeat: false, eventTimestamp: 0)
                     }
                     .controlSize(.small)
                 }
@@ -91,8 +105,10 @@ private struct DiagnosticsView: View {
             VStack(alignment: .leading, spacing: 3) {
                 row("Permission", state.hasPermission ? "Granted" : "Missing")
                 row("Key presses this session", "\(state.tap.keyDownCount)")
-                row("Shots played", "\(stats.shots)")
-                row("Keys muted by reload", "\(stats.suppressedByReload)")
+                row("Sounds played", "\(stats.shots)")
+                if state.soundPack == .shotgun {
+                    row("Keys muted by reload", "\(stats.suppressedByReload)")
+                }
                 row("Latency (event → scheduled)", latencyText(stats))
                 row("Audio output latency", String(format: "%.1f ms", stats.outputLatencyMs))
                 row("Audio engine", stats.engineRunning ? "Running" : "Sleeping (wakes on next key)")
